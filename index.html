@@ -69,19 +69,19 @@
   <section class="card" id="rsvpCard">
     <h2>Are you in?</h2>
     <form id="rsvpForm" autocomplete="on">
-      <label>Name <input type="text" name="name" maxlength="60" required autocomplete="name"></label>
+      <label>Name <input type="text" name="name" maxlength="60" required autocomplete="name" autocapitalize="sentences"></label>
       <div class="row">
         <label>Email <input type="email" name="email" maxlength="120" autocomplete="email"></label>
         <label>Phone <input type="tel" name="phone" maxlength="40" autocomplete="tel" placeholder="404-555-0123"></label>
       </div>
       <div class="sub" style="margin-top:-6px">Enter an email, a phone number, or both. Reminders are sent by email only.</div>
-      <label>Instrument(s) <input type="text" name="instrument" maxlength="60" placeholder="e.g. bass, vocals"></label>
+      <label>Instrument(s) <input type="text" name="instrument" maxlength="60" autocapitalize="sentences" placeholder="e.g. bass, vocals"></label>
       <div class="seg" role="radiogroup" aria-label="RSVP">
         <label><input type="radio" name="status" value="yes" checked> Going</label>
         <label><input type="radio" name="status" value="maybe"> Maybe</label>
         <label><input type="radio" name="status" value="no"> Can't make it</label>
       </div>
-      <label>Note for the group (optional) <input type="text" name="note" maxlength="280" placeholder="Running 15 min late, bringing a keyboard..."></label>
+      <label>Note for the group (optional) <input type="text" name="note" maxlength="280" autocapitalize="sentences" placeholder="Running 15 min late, bringing a keyboard..."></label>
       <label class="check"><input type="checkbox" name="remind" checked> Email me a reminder before each jam (needs an email)</label>
       <input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
       <div><button class="primary" type="submit" id="rsvpBtn">Save RSVP</button></div>
@@ -100,7 +100,7 @@
     <h2>Notes</h2>
     <ul class="notes" id="notes"></ul>
     <form id="noteForm" style="margin-top:12px">
-      <textarea name="text" maxlength="500" placeholder="Set list ideas, gear to bring, key/tempo requests..." required></textarea>
+      <textarea name="text" maxlength="500" autocapitalize="sentences" placeholder="Set list ideas, gear to bring, key/tempo requests..." required></textarea>
       <input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
       <div><button class="primary" type="submit" id="noteBtn">Post note</button></div>
       <div class="msg" id="noteMsg" role="status"></div>
@@ -240,11 +240,21 @@ function renderList(data) {
   });
 }
 
+// ---- capitalize the first letter of the text fields ----
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+// Names: capitalize each word (also after a hyphen or apostrophe: Mary-Jane, O'Brien).
+const capWords = s => s.replace(/(^|[\s'\u2019-])(\p{L})/gu, (m, sep, ch) => sep + ch.toUpperCase());
+document.querySelectorAll('#rsvpForm [name=name], #rsvpForm [name=instrument], #rsvpForm [name=note], #noteForm textarea')
+  .forEach(inp => inp.addEventListener('input', () => {
+    const v = inp.value, c = inp.name === 'name' ? capWords(v) : cap(v);
+    if (v !== c) { const a = inp.selectionStart, b = inp.selectionEnd; inp.value = c; inp.setSelectionRange(a, b); }
+  }));
+
 // ---- forms ----
 $('rsvpForm').addEventListener('submit', async e => {
   e.preventDefault(); const f = e.target, btn = $('rsvpBtn');
-  const body = { date: current, name: f.elements.name.value.trim(), email: f.elements.email.value.trim(), phone: f.elements.phone.value.trim(), instrument: f.elements.instrument.value.trim(),
-    status: f.elements.status.value, note: f.elements.note.value.trim(), remind: f.elements.remind.checked, website: f.elements.website.value };
+  const body = { date: current, name: capWords(f.elements.name.value.trim()), email: f.elements.email.value.trim(), phone: f.elements.phone.value.trim(), instrument: cap(f.elements.instrument.value.trim()),
+    status: f.elements.status.value, note: cap(f.elements.note.value.trim()), remind: f.elements.remind.checked, website: f.elements.website.value };
   if (!body.email && !body.phone) { setMsg('rsvpMsg', 'Please enter an email or a phone number.', 'err'); return; }
   btn.disabled = true; setMsg('rsvpMsg', 'Saving...');
   try {
@@ -258,11 +268,11 @@ $('rsvpForm').addEventListener('submit', async e => {
 
 $('noteForm').addEventListener('submit', async e => {
   e.preventDefault(); const f = e.target, btn = $('noteBtn'), me = store('jam-me');
-  const name = ($('rsvpForm').elements.name.value || (me && me.name) || '').trim();
+  const name = capWords(($('rsvpForm').elements.name.value || (me && me.name) || '').trim());
   if (!name) { setMsg('noteMsg', 'Enter your name in the RSVP form first.', 'err'); return; }
   btn.disabled = true; setMsg('noteMsg', 'Posting...');
   try {
-    const res = await postNote({ date: current, name, text: f.elements.text.value.trim(), website: f.elements.website.value });
+    const res = await postNote({ date: current, name, text: cap(f.elements.text.value.trim()), website: f.elements.website.value });
     if (res.error) { setMsg('noteMsg', res.error, 'err'); return; }
     f.elements.text.value = ''; setMsg('noteMsg', 'Posted.', 'ok'); selectDateQuiet();
   } catch (err) { setMsg('noteMsg', 'Could not post. Try again.', 'err'); }
