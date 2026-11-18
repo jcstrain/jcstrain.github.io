@@ -24,6 +24,7 @@
   .tab[aria-selected="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
   .tab .n { opacity:.75; margin-left:6px; font-size:12px; }
   .cancelled { color:var(--no); font-weight:600; }
+  .tab.off { text-decoration:line-through; opacity:.7; }
   form { display:grid; gap:12px; }
   .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   @media (max-width:520px) { .row { grid-template-columns:1fr; } }
@@ -59,15 +60,18 @@
   <div id="demo" class="banner" hidden>Demo mode: nothing is sent or shared. Set <code>APPS_SCRIPT_URL</code> in this file to go live (see README).</div>
 
   <div class="tabs" id="tabs" role="tablist" aria-label="Upcoming jams"></div>
+  <div id="dateInfo" class="banner" style="background:var(--card);color:var(--ink);border:1px solid var(--line)" hidden></div>
   <div id="cancelBanner" class="banner cancelled" hidden>This jam is cancelled.</div>
 
   <section class="card" id="rsvpCard">
     <h2>Are you in?</h2>
     <form id="rsvpForm" autocomplete="on">
+      <label>Name <input type="text" name="name" maxlength="60" required autocomplete="name"></label>
       <div class="row">
-        <label>Name <input type="text" name="name" maxlength="60" required autocomplete="name"></label>
-        <label>Email <input type="email" name="email" maxlength="120" required autocomplete="email"></label>
+        <label>Email <input type="email" name="email" maxlength="120" autocomplete="email"></label>
+        <label>Phone <input type="tel" name="phone" maxlength="40" autocomplete="tel" placeholder="404-555-0123"></label>
       </div>
+      <div class="sub" style="margin-top:-6px">Enter an email, a phone number, or both. Reminders are sent by email only.</div>
       <label>Instrument(s) <input type="text" name="instrument" maxlength="60" placeholder="e.g. bass, vocals"></label>
       <div class="seg" role="radiogroup" aria-label="RSVP">
         <label><input type="radio" name="status" value="yes" checked> Going</label>
@@ -75,12 +79,12 @@
         <label><input type="radio" name="status" value="no"> Can't make it</label>
       </div>
       <label>Note for the group (optional) <input type="text" name="note" maxlength="280" placeholder="Running 15 min late, bringing a keyboard..."></label>
-      <label class="check"><input type="checkbox" name="remind" checked> Email me a reminder before each jam</label>
+      <label class="check"><input type="checkbox" name="remind" checked> Email me a reminder before each jam (needs an email)</label>
       <input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
       <div><button class="primary" type="submit" id="rsvpBtn">Save RSVP</button></div>
       <div class="msg" id="rsvpMsg" role="status"></div>
     </form>
-    <p class="sub">Your email is only used for reminders and is never shown to others. RSVP again with the same email to change your answer.</p>
+    <p class="sub">Your email and phone are only used to recognize you and send reminders, and are never shown to others. RSVP again with the same email or phone to change your answer.</p>
   </section>
 
   <section class="card">
@@ -143,15 +147,16 @@ const demoDb = () => store('jam-demo') || { rsvps:{}, notes:{} };
 async function getConfig() { return DEMO ? { ...DEMO_CONFIG, upcoming: demoUpcoming() } : apiGet({ action:'config' }); }
 async function getList(date) {
   if (!DEMO) return apiGet({ action:'list', date });
-  const db = demoDb(); return { rsvps: (db.rsvps[date] || []).map(({ email, ...r }) => r), notes: db.notes[date] || [] };
+  const db = demoDb(); return { rsvps: (db.rsvps[date] || []).map(({ email, phone, ...r }) => r), notes: db.notes[date] || [] };
 }
 async function postRsvp(body) {
   if (!DEMO) return apiPost({ action:'rsvp', ...body });
   const db = demoDb(), list = db.rsvps[body.date] = db.rsvps[body.date] || [];
-  const i = list.findIndex(r => r.email === body.email.toLowerCase());
-  const rec = { email: body.email.toLowerCase(), name: body.name, instrument: body.instrument, status: body.status, note: body.note };
+  const em = body.email.toLowerCase(), ph = body.phone.replace(/\D/g, '');
+  const i = list.findIndex(r => (em && r.email === em) || (ph && r.phone === ph));
+  const rec = { email: em, phone: ph, name: body.name, instrument: body.instrument, status: body.status, note: body.note };
   if (i >= 0) list[i] = rec; else list.push(rec);
-  store('jam-demo', db); return { ok:true };
+  store('jam-demo', db); return { ok:true, noEmail: !em };
 }
 async function postNote(body) {
   if (!DEMO) return apiPost({ action:'note', ...body });
@@ -171,7 +176,8 @@ function setMsg(id, text, kind) { const m = $(id); m.textContent = text || ''; m
 // ---- render ----
 function renderHeader() {
   document.title = cfg.name; $('title').textContent = cfg.name;
-  $('when').textContent = 'Every ' + new Date('2000-01-0' + (cfg.dayOfWeek + 2) + 'T12:00:00Z').toLocaleDateString(undefined, { weekday:'long', timeZone:'UTC' })
+  const dayRef = cfg.dayOfWeek != null ? '2000-01-0' + (cfg.dayOfWeek + 2) : cfg.upcoming[0];   // live config sends dates, not a weekday number
+  $('when').textContent = 'Every ' + new Date(dayRef + 'T12:00:00Z').toLocaleDateString(undefined, { weekday:'long', timeZone:'UTC' })
     + ', ' + fmtTime(cfg.startTime) + ' – ' + fmtTime(addMinutes(cfg.startTime, cfg.durationMin));
   $('where').textContent = cfg.location; $('desc').textContent = cfg.description || '';
   $('demo').hidden = !DEMO;
@@ -182,14 +188,23 @@ function renderTabs() {
   cfg.upcoming.forEach(date => {
     const b = el('button', 'tab', fmtTab(date)); b.type = 'button'; b.setAttribute('role', 'tab');
     b.setAttribute('aria-selected', String(date === current));
+    if ((cfg.cancelled || []).includes(date)) b.classList.add('off');
+    if (info(date).extra) b.title = 'One-off jam';
     b.onclick = () => selectDate(date); tabs.appendChild(b);
   });
 }
 
+const info = d => (cfg.info && cfg.info[d]) || {};
+
 async function selectDate(date) {
   current = date; renderTabs();
-  const cancelled = (cfg.cancelled || []).includes(date);
+  const cancelled = (cfg.cancelled || []).includes(date), inf = info(date);
+  $('cancelBanner').textContent = 'This jam is cancelled.' + (inf.note ? ' ' + inf.note : '');
   $('cancelBanner').hidden = !cancelled; $('rsvpCard').hidden = cancelled;
+  const bits = [];
+  if (!cancelled && inf.extra) bits.push('One-off jam' + (inf.time ? ' at ' + fmtTime(inf.time) : '') + (inf.location ? ' at ' + inf.location : ''));
+  if (!cancelled && inf.note) bits.push(inf.note);
+  $('dateInfo').textContent = bits.join(' · '); $('dateInfo').hidden = !bits.length;
   setMsg('rsvpMsg'); setMsg('noteMsg');
   $('people').replaceChildren(el('li', 'empty', 'Loading...')); $('counts').replaceChildren(); $('notes').replaceChildren();
   try {
@@ -225,14 +240,15 @@ function renderList(data) {
 // ---- forms ----
 $('rsvpForm').addEventListener('submit', async e => {
   e.preventDefault(); const f = e.target, btn = $('rsvpBtn');
-  const body = { date: current, name: f.elements.name.value.trim(), email: f.elements.email.value.trim(), instrument: f.elements.instrument.value.trim(),
+  const body = { date: current, name: f.elements.name.value.trim(), email: f.elements.email.value.trim(), phone: f.elements.phone.value.trim(), instrument: f.elements.instrument.value.trim(),
     status: f.elements.status.value, note: f.elements.note.value.trim(), remind: f.elements.remind.checked, website: f.elements.website.value };
+  if (!body.email && !body.phone) { setMsg('rsvpMsg', 'Please enter an email or a phone number.', 'err'); return; }
   btn.disabled = true; setMsg('rsvpMsg', 'Saving...');
   try {
     const res = await postRsvp(body);
     if (res.error) { setMsg('rsvpMsg', res.error, 'err'); return; }
-    store('jam-me', { name: body.name, email: body.email, instrument: body.instrument, remind: body.remind });
-    setMsg('rsvpMsg', 'Saved. See you there!', 'ok'); f.elements.note.value = ''; selectDateQuiet();
+    store('jam-me', { name: body.name, email: body.email, phone: body.phone, instrument: body.instrument, remind: body.remind });
+    setMsg('rsvpMsg', res.noEmail ? 'Saved. Add an email next time if you want reminders.' : 'Saved. See you there!', 'ok'); f.elements.note.value = ''; selectDateQuiet();
   } catch (err) { setMsg('rsvpMsg', 'Could not save. Check your connection and try again.', 'err'); }
   finally { btn.disabled = false; }
 });
@@ -260,7 +276,7 @@ async function selectDateQuiet() { try { const d = await getList(current); if (!
   } catch (e) { $('people').replaceChildren(el('li', 'empty', 'Could not reach the jam server. Try refreshing.')); return; }
   renderHeader();
   const me = store('jam-me');
-  if (me) { const f = $('rsvpForm'); f.elements.name.value = me.name || ''; f.elements.email.value = me.email || ''; f.elements.instrument.value = me.instrument || ''; f.elements.remind.checked = me.remind !== false; }
+  if (me) { const f = $('rsvpForm'); f.elements.name.value = me.name || ''; f.elements.email.value = me.email || ''; f.elements.phone.value = me.phone || ''; f.elements.instrument.value = me.instrument || ''; f.elements.remind.checked = me.remind !== false; }
   const first = cfg.upcoming.find(d => !(cfg.cancelled || []).includes(d)) || cfg.upcoming[0];
   selectDate(first);
 })();
