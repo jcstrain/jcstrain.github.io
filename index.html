@@ -19,10 +19,13 @@
   .meta { color:var(--muted); margin:0 0 4px; }
   .banner { background:#fef3c7; color:#78350f; border-radius:8px; padding:10px 14px; margin:16px 0; font-size:14px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-top:16px; }
-  .tabs { display:flex; gap:8px; overflow-x:auto; padding:4px 0; margin-top:20px; }
-  .tab { flex:none; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:999px; padding:8px 14px; cursor:pointer; font:inherit; font-size:14px; }
+  .tabs { display:flex; gap:10px; overflow-x:auto; padding:10px 8px 4px 0; margin-top:14px; }
+  .tab { position:relative; flex:none; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:999px; padding:8px 14px; cursor:pointer; font:inherit; font-size:14px; }
   .tab[aria-selected="true"] { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
-  .tab .n { opacity:.75; margin-left:6px; font-size:12px; }
+  /* iOS-style count badge: number of people going */
+  .badge { position:absolute; top:-7px; right:-5px; min-width:20px; height:20px; padding:0 6px; border-radius:10px;
+           background:#ff3b30; color:#fff; font-size:12px; font-weight:700; line-height:20px; text-align:center;
+           box-shadow:0 0 0 2px var(--bg); pointer-events:none; }
   .cancelled { color:var(--no); font-weight:600; }
   .tab.off { text-decoration:line-through; opacity:.7; }
   form { display:grid; gap:12px; }
@@ -72,7 +75,7 @@
       <label>Name <input type="text" name="name" maxlength="60" required autocomplete="name" autocapitalize="sentences"></label>
       <div class="row">
         <label>Email <input type="email" name="email" maxlength="120" autocomplete="email"></label>
-        <label>Phone <input type="tel" name="phone" maxlength="40" autocomplete="tel" placeholder="404-555-0123"></label>
+        <label>Phone <input type="tel" name="phone" maxlength="40" autocomplete="tel" inputmode="tel" placeholder="404-555-0123"></label>
       </div>
       <div class="sub" style="margin-top:-6px">Enter an email, a phone number, or both. Reminders are sent by email only.</div>
       <label>Instrument(s) <input type="text" name="instrument" maxlength="60" autocapitalize="sentences" placeholder="e.g. bass, vocals"></label>
@@ -147,7 +150,12 @@ function demoUpcoming() {
   return out;
 }
 const demoDb = () => store('jam-demo') || { rsvps:{}, notes:{} };
-async function getConfig() { return DEMO ? { ...DEMO_CONFIG, upcoming: demoUpcoming() } : apiGet({ action:'config' }); }
+async function getConfig() {
+  if (!DEMO) return apiGet({ action:'config' });
+  const db = demoDb(), counts = {};
+  Object.keys(db.rsvps).forEach(d => { counts[d] = db.rsvps[d].filter(r => r.status === 'yes').length; });
+  return { ...DEMO_CONFIG, upcoming: demoUpcoming(), counts };
+}
 async function getList(date) {
   if (!DEMO) return apiGet({ action:'list', date });
   const db = demoDb(); return { rsvps: (db.rsvps[date] || []).map(({ email, phone, ...r }) => r), notes: db.notes[date] || [] };
@@ -193,6 +201,10 @@ function renderTabs() {
     b.setAttribute('aria-selected', String(date === current));
     if ((cfg.cancelled || []).includes(date)) b.classList.add('off');
     if (info(date).extra) b.title = 'One-off jam';
+    const going = (cfg.counts || {})[date] | 0;
+    if (going > 0 && !(cfg.cancelled || []).includes(date)) {
+      const badge = el('span', 'badge', String(going)); badge.setAttribute('aria-label', going + ' going'); b.appendChild(badge);
+    }
     b.onclick = () => selectDate(date); tabs.appendChild(b);
   });
 }
@@ -223,6 +235,7 @@ function renderList(data) {
   const people = [...data.rsvps].sort((a, b) => order[a.status] - order[b.status]);
   const counts = $('counts'); counts.replaceChildren();
   ['yes', 'maybe', 'no'].forEach(s => { const n = people.filter(p => p.status === s).length; if (n) counts.appendChild(el('span', s, n + ' ' + labels[s].toLowerCase())); });
+  cfg.counts = cfg.counts || {}; cfg.counts[current] = people.filter(p => p.status === 'yes').length; renderTabs();
   const ul = $('people'); ul.replaceChildren();
   if (!people.length) ul.appendChild(el('li', 'empty', 'No RSVPs yet. Be the first!'));
   people.forEach(p => {
@@ -249,6 +262,26 @@ document.querySelectorAll('#rsvpForm [name=name], #rsvpForm [name=instrument], #
     const v = inp.value, c = inp.name === 'name' ? capWords(v) : cap(v);
     if (v !== c) { const a = inp.selectionStart, b = inp.selectionEnd; inp.value = c; inp.setSelectionRange(a, b); }
   }));
+
+// ---- phone mask: 4042720324 -> 404-272-0324 as you type (numbers starting with + are left alone) ----
+function fmtPhone(v) {
+  if (v.trim().startsWith('+')) return v;
+  let d = v.replace(/\D/g, '');
+  if (d.length > 10 && d[0] === '1') d = d.slice(1);
+  d = d.slice(0, 10);
+  return d.length <= 3 ? d : d.length <= 6 ? d.slice(0, 3) + '-' + d.slice(3) : d.slice(0, 3) + '-' + d.slice(3, 6) + '-' + d.slice(6);
+}
+const phoneInp = document.querySelector('#rsvpForm [name=phone]');
+phoneInp.addEventListener('input', () => {
+  const v = phoneInp.value, f = fmtPhone(v);
+  if (v === f) return;
+  const pos = phoneInp.selectionStart, atEnd = pos >= v.length;
+  const digitsBefore = v.slice(0, pos).replace(/\D/g, '').length;
+  phoneInp.value = f;
+  let np = f.length;
+  if (!atEnd) { let seen = 0; for (np = 0; np < f.length && seen < digitsBefore; np++) if (/\d/.test(f[np])) seen++; }
+  phoneInp.setSelectionRange(np, np);
+});
 
 // ---- forms ----
 $('rsvpForm').addEventListener('submit', async e => {
@@ -281,6 +314,12 @@ $('noteForm').addEventListener('submit', async e => {
 
 async function selectDateQuiet() { try { const d = await getList(current); if (!d.error) renderList(d); } catch (e) {} }
 
+// refresh the badges when the page comes back into view (others may have RSVP'd meanwhile)
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible' || !cfg || DEMO) return;
+  try { const c = await getConfig(); if (c && c.counts) { cfg.counts = { ...c.counts }; renderTabs(); } } catch (e) {}
+});
+
 // ---- init ----
 (async function init() {
   try {
@@ -289,7 +328,7 @@ async function selectDateQuiet() { try { const d = await getList(current); if (!
   } catch (e) { $('people').replaceChildren(el('li', 'empty', 'Could not reach the jam server. Try refreshing.')); return; }
   renderHeader();
   const me = store('jam-me');
-  if (me) { const f = $('rsvpForm'); f.elements.name.value = me.name || ''; f.elements.email.value = me.email || ''; f.elements.phone.value = me.phone || ''; f.elements.instrument.value = me.instrument || ''; f.elements.remind.checked = me.remind !== false; }
+  if (me) { const f = $('rsvpForm'); f.elements.name.value = me.name || ''; f.elements.email.value = me.email || ''; f.elements.phone.value = fmtPhone(me.phone || ''); f.elements.instrument.value = me.instrument || ''; f.elements.remind.checked = me.remind !== false; }
   const first = cfg.upcoming.find(d => !(cfg.cancelled || []).includes(d)) || cfg.upcoming[0];
   selectDate(first);
 })();
