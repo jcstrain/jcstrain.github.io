@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Weekly Jam</title>
+<link rel="icon" href="favicon.ico" sizes="48x48">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="favicon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
   :root { --bg:#faf8f5; --card:#fff; --ink:#1f1b16; --muted:#6b645b; --line:#e6e0d8; --accent:#c2410c; --accent-ink:#fff;
           --yes:#15803d; --maybe:#b45309; --no:#9f1239; }
@@ -14,6 +18,7 @@
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
   main { max-width:720px; margin:0 auto; padding:24px 16px 64px; }
+  .hero { display:block; width:100%; height:auto; border-radius:14px; margin:0 0 18px; box-shadow:0 2px 14px rgba(60,40,20,.25); }
   h1 { margin:0 0 4px; font-size:28px; }
   h2 { font-size:17px; margin:0 0 12px; }
   .meta { color:var(--muted); margin:0 0 4px; }
@@ -59,6 +64,8 @@
 </head>
 <body>
 <main>
+  <img class="hero" src="swampass-header.jpg" width="1584" height="672" fetchpriority="high"
+       alt="Swampass, Alpharetta, GA: a banjo-playing donkey, a gator in the water and a dancing turtle in a mossy swamp under a mothman moon">
   <h1 id="title">Weekly Jam</h1>
   <p class="meta" id="when"></p>
   <p class="meta" id="where"></p>
